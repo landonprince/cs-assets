@@ -59,6 +59,20 @@ app.post('/auth/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }))
 })
 
+// ── Profile ────────────────────────────────────────────────────
+app.get('/api/profile', async (req, res) => {
+  if (!req.session.steamId) return res.status(401).json({ error: 'Not authenticated' })
+  try {
+    const r = await fetch(`https://steamcommunity.com/profiles/${req.session.steamId}?xml=1`)
+    const xml = await r.text()
+    const name   = xml.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/)?.[1] ?? null
+    const avatar = xml.match(/<avatarFull><!\[CDATA\[(.*?)\]\]><\/avatarFull>/)?.[1] ?? null
+    res.json({ name, avatar, steamId: req.session.steamId })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ── Inventory ──────────────────────────────────────────────────
 app.get('/api/inventory', async (req, res) => {
   if (!req.session.steamId) return res.status(401).json({ error: 'Not authenticated' })
@@ -72,7 +86,11 @@ app.get('/api/inventory', async (req, res) => {
   try {
     let r
     for (let attempt = 0; attempt < 4; attempt++) {
-      if (attempt > 0) await new Promise(resolve => setTimeout(resolve, attempt * 2000))
+      if (attempt > 0) {
+        const base = Math.min(1000 * 2 ** attempt, 16000)
+        const jitter = Math.random() * base * 0.5
+        await new Promise(resolve => setTimeout(resolve, base + jitter))
+      }
       r = await fetch(`https://steamcommunity.com/inventory/${req.session.steamId}/730/2?${qs}`, { headers })
       if (r.status !== 429) break
     }

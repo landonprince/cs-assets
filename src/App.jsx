@@ -1,54 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import './App.css'
 import PriceModal from './PriceChart'
-
-const STEAM_IMAGE_BASE = 'https://community.akamai.steamstatic.com/economy/image/'
-
-const RARITY_COLORS = {
-  Rarity_Common:      '#b0c3d9',
-  Rarity_Uncommon:    '#5e98d9',
-  Rarity_Rare:        '#4b69ff',
-  Rarity_Mythical:    '#8847ff',
-  Rarity_Legendary:   '#d32ce6',
-  Rarity_Ancient:     '#eb4b4b',
-  Rarity_Contraband:  '#e4ae39',
-}
-
-const RARITY_ORDER = [
-  'Rarity_Contraband', 'Rarity_Ancient', 'Rarity_Legendary',
-  'Rarity_Mythical', 'Rarity_Rare', 'Rarity_Uncommon', 'Rarity_Common',
-]
-
-const WEAR_ORDER = [
-  'Factory New', 'Minimal Wear', 'Field-Tested', 'Well-Worn', 'Battle-Scarred',
-]
-
-const RARITY_LABELS = {
-  Rarity_Contraband: 'Contraband',
-  Rarity_Ancient:    'Covert',
-  Rarity_Legendary:  'Classified',
-  Rarity_Mythical:   'Restricted',
-  Rarity_Rare:       'Mil-Spec',
-  Rarity_Uncommon:   'Industrial',
-  Rarity_Common:     'Consumer',
-}
-
-const WEAR_LABELS = {
-  'Factory New':   'FN',
-  'Minimal Wear':  'MW',
-  'Field-Tested':  'FT',
-  'Well-Worn':     'WW',
-  'Battle-Scarred':'BS',
-}
-
-function getRarity(item) {
-  const internal = item.tags?.find(t => t.category === 'Rarity')?.internal_name ?? null
-  return internal?.replace(/_(Weapon|Character|Equipment)$/, '') ?? null
-}
-
-function getWear(item) {
-  return item.tags?.find(t => t.category === 'Exterior')?.localized_tag_name ?? null
-}
+import ProfilePage from './ProfilePage'
+import Dashboard from './Dashboard'
+import {
+  STEAM_IMAGE_BASE, RARITY_COLORS, RARITY_ORDER, RARITY_LABELS,
+  WEAR_ORDER, WEAR_LABELS, getRarity, getWear, stripWear,
+} from './constants'
 
 function parsePrice(str) {
   if (!str) return null
@@ -78,12 +36,12 @@ function DualRangeSlider({ lo, hi, min, max, onChange }) {
       <div className="dual-range-track">
         <div className="dual-range-fill" style={{ left: `${loPct}%`, width: `${Math.max(0, hiPct - loPct)}%` }} />
       </div>
-      <input type="range" className="dual-range-input" min={min} max={max} step={0.5}
+      <input type="range" className="dual-range-input" min={min} max={max} step={1}
         value={lo} style={{ zIndex: lo > max - 1 ? 5 : 3 }}
-        onChange={e => onChange([Math.min(parseFloat(e.target.value), hi - 0.5), hi])} />
-      <input type="range" className="dual-range-input" min={min} max={max} step={0.5}
+        onChange={e => onChange([Math.min(parseFloat(e.target.value), hi - 1), hi])} />
+      <input type="range" className="dual-range-input" min={min} max={max} step={1}
         value={hi} style={{ zIndex: 4 }}
-        onChange={e => onChange([lo, Math.max(parseFloat(e.target.value), lo + 0.5)])} />
+        onChange={e => onChange([lo, Math.max(parseFloat(e.target.value), lo + 1)])} />
     </div>
   )
 }
@@ -94,26 +52,19 @@ export default function App() {
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState(null)
   const [selectedItem, setSelectedItem] = useState(null)
+  const [view, setView]                 = useState('dashboard')
   const [sortBy, setSortBy]             = useState('default')
   const [filterRarity, setFilterRarity] = useState('all')
   const [filterWear, setFilterWear]     = useState('all')
+  const [profile, setProfile]           = useState(null)
   const [steamPrices, setSteamPrices]   = useState({})
   const [csfloatPrices, setCsfloatPrices] = useState({})
   const [pricesLoading, setPricesLoading] = useState(false)
-  const [sliderBounds, setSliderBounds] = useState([0, 500])
-  const [priceRange, setPriceRange]     = useState([0, 500])
-  const pricesFetched  = useRef({ steam: false, csfloat: false })
-  const sliderInitRef  = useRef(false)
+  const [sliderBounds] = useState([0, 1000])
+  const [priceRange, setPriceRange] = useState([0, 1000])
+  const pricesFetched    = useRef({ steam: false, csfloat: false })
+  const loadingCountRef  = useRef(0)
 
-  // Initialise slider bounds once Steam prices first load
-  useEffect(() => {
-    const prices = Object.values(steamPrices).filter(p => p != null && p > 0)
-    if (prices.length === 0 || sliderInitRef.current) return
-    sliderInitRef.current = true
-    const hi = Math.ceil(Math.max(...prices))
-    setSliderBounds([0, hi])
-    setPriceRange([0, hi])
-  }, [steamPrices])
 
   useEffect(() => {
     fetch('/api/session')
@@ -131,6 +82,13 @@ export default function App() {
       window.history.replaceState({}, '', '/')
     }
   }, [])
+
+  // Fetch profile once when authenticated
+  useEffect(() => {
+    if (!steamId) return
+    fetch('/api/profile').then(r => r.json()).then(setProfile).catch(() => {})
+  }, [steamId])
+
 
   async function fetchInventory(id) {
     setLoading(true)
@@ -182,10 +140,19 @@ export default function App() {
     }
   }
 
+  function startLoading() {
+    loadingCountRef.current++
+    setPricesLoading(true)
+  }
+  function finishLoading() {
+    loadingCountRef.current--
+    if (loadingCountRef.current === 0) setPricesLoading(false)
+  }
+
   async function loadSteamPrices(itemList) {
     if (pricesFetched.current.steam) return
     pricesFetched.current.steam = true
-    setPricesLoading(true)
+    startLoading()
     const uniqueNames = [...new Set(itemList.map(i => i.market_hash_name).filter(Boolean))]
     const results = await fetchInBatches(uniqueNames, async name => {
       try {
@@ -195,13 +162,13 @@ export default function App() {
       } catch { return null }
     })
     setSteamPrices(results)
-    setPricesLoading(false)
+    finishLoading()
   }
 
   async function loadCsfloatPrices(itemList) {
     if (pricesFetched.current.csfloat) return
     pricesFetched.current.csfloat = true
-    setPricesLoading(true)
+    startLoading()
     const uniqueNames = [...new Set(itemList.map(i => i.market_hash_name).filter(Boolean))]
     const results = await fetchInBatches(uniqueNames, async name => {
       try {
@@ -214,7 +181,7 @@ export default function App() {
       } catch { return null }
     })
     setCsfloatPrices(results)
-    setPricesLoading(false)
+    finishLoading()
   }
 
   function handleSortChange(value) {
@@ -237,11 +204,12 @@ export default function App() {
       result = result.filter(item => getWear(item) === filterWear)
 
     const steamPricesLoaded = Object.keys(steamPrices).length > 0
-    if (steamPricesLoaded && (priceRange[0] > sliderBounds[0] || priceRange[1] < sliderBounds[1])) {
+    const atMaxHi = priceRange[1] >= sliderBounds[1]
+    if (steamPricesLoaded && (priceRange[0] > sliderBounds[0] || !atMaxHi)) {
       result = result.filter(item => {
         const price = steamPrices[item.market_hash_name]
         if (price == null) return true
-        return price >= priceRange[0] && price <= priceRange[1]
+        return price >= priceRange[0] && (atMaxHi || price <= priceRange[1])
       })
     }
 
@@ -258,13 +226,37 @@ export default function App() {
     else if (sortBy === 'wear-desc')
       result.sort((a, b) => WEAR_ORDER.indexOf(getWear(b)) - WEAR_ORDER.indexOf(getWear(a)))
     else if (sortBy === 'steam-price-desc')
-      result.sort((a, b) => (steamPrices[b.market_hash_name] ?? -1) - (steamPrices[a.market_hash_name] ?? -1))
+      result.sort((a, b) => {
+        const pa = steamPrices[a.market_hash_name], pb = steamPrices[b.market_hash_name]
+        if (pa == null && pb == null) return 0
+        if (pa == null) return 1
+        if (pb == null) return -1
+        return pb - pa
+      })
     else if (sortBy === 'steam-price-asc')
-      result.sort((a, b) => (steamPrices[a.market_hash_name] ?? Infinity) - (steamPrices[b.market_hash_name] ?? Infinity))
+      result.sort((a, b) => {
+        const pa = steamPrices[a.market_hash_name], pb = steamPrices[b.market_hash_name]
+        if (pa == null && pb == null) return 0
+        if (pa == null) return 1
+        if (pb == null) return -1
+        return pa - pb
+      })
     else if (sortBy === 'csfloat-price-desc')
-      result.sort((a, b) => (csfloatPrices[b.market_hash_name] ?? -1) - (csfloatPrices[a.market_hash_name] ?? -1))
+      result.sort((a, b) => {
+        const pa = csfloatPrices[a.market_hash_name], pb = csfloatPrices[b.market_hash_name]
+        if (pa == null && pb == null) return 0
+        if (pa == null) return 1
+        if (pb == null) return -1
+        return pb - pa
+      })
     else if (sortBy === 'csfloat-price-asc')
-      result.sort((a, b) => (csfloatPrices[a.market_hash_name] ?? Infinity) - (csfloatPrices[b.market_hash_name] ?? Infinity))
+      result.sort((a, b) => {
+        const pa = csfloatPrices[a.market_hash_name], pb = csfloatPrices[b.market_hash_name]
+        if (pa == null && pb == null) return 0
+        if (pa == null) return 1
+        if (pb == null) return -1
+        return pa - pb
+      })
 
     return result
   }, [items, sortBy, filterRarity, filterWear, steamPrices, csfloatPrices, priceRange, sliderBounds])
@@ -283,12 +275,39 @@ export default function App() {
       <div className="inventory-page">
         <header className="inv-header">
           <h1 style={{fontWeight:700}}>CS<span style={{color:'var(--accent)'}}>Assets</span></h1>
+          <nav className="inv-nav">
+            <button className={`nav-tab ${view === 'dashboard' ? 'active' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
+            <button className={`nav-tab ${view === 'inventory' ? 'active' : ''}`} onClick={() => setView('inventory')}>Inventory</button>
+            <button className={`nav-tab ${view === 'profile' ? 'active' : ''}`} onClick={() => setView('profile')}>Profile</button>
+          </nav>
           <div className="inv-meta">
-            <span className="item-count">{displayedItems.length} / {items.length} items</span>
+            {view === 'inventory' && <span className="item-count">{displayedItems.length} / {items.length} items</span>}
             <button className="btn-outline" onClick={handleLogout}>Sign Out</button>
           </div>
         </header>
 
+        {view === 'dashboard' && (
+          <Dashboard
+            items={items}
+            steamPrices={steamPrices}
+            csfloatPrices={csfloatPrices}
+            steamId={steamId}
+            profile={profile}
+            onNavigate={setView}
+          />
+        )}
+
+        {view === 'profile' && (
+          <ProfilePage
+            items={items}
+            steamPrices={steamPrices}
+            csfloatPrices={csfloatPrices}
+            steamId={steamId}
+            profile={profile}
+          />
+        )}
+
+        {view === 'inventory' && (<>
         <div className="inv-controls">
           <div className="control-row">
             <span className="control-label">Sort</span>
@@ -363,8 +382,10 @@ export default function App() {
                   min={sliderBounds[0]} max={sliderBounds[1]}
                   onChange={setPriceRange}
                 />
-                <span className="price-range-val">${priceRange[1].toFixed(2)}</span>
-                {(priceRange[0] > sliderBounds[0] || priceRange[1] < sliderBounds[1]) && (
+                <span className="price-range-val">
+                  {priceRange[1] >= sliderBounds[1] ? '∞' : `$${priceRange[1].toFixed(2)}`}
+                </span>
+                {priceRange[0] > sliderBounds[0] && (
                   <button className="filter-pill" onClick={() => setPriceRange(sliderBounds)}>Reset</button>
                 )}
               </div>
@@ -398,7 +419,7 @@ export default function App() {
                     />
                   </div>
                   <div className="item-info">
-                    <span className="item-name">{(item.market_hash_name || item.name).replace(/ \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/, '')}</span>
+                    <span className="item-name">{stripWear(item.market_hash_name || item.name)}</span>
                     {wear && <span className="item-wear">{wear.localized_tag_name}</span>}
                     <div className="item-prices">
                       <span className="item-price-tag">
@@ -426,6 +447,7 @@ export default function App() {
         {selectedItem && (
           <PriceModal item={selectedItem} onClose={() => setSelectedItem(null)} />
         )}
+        </>)}
       </div>
     )
   }
