@@ -23,7 +23,8 @@ function parseSteamId(input) {
 }
 
 function getRarity(item) {
-  return item.tags?.find(t => t.category === 'Rarity')?.internal_name ?? null
+  const internal = item.tags?.find(t => t.category === 'Rarity')?.internal_name ?? null
+  return internal?.replace(/_(Weapon|Character|Equipment)$/, '') ?? null
 }
 
 export default function App() {
@@ -35,6 +36,7 @@ export default function App() {
     if (devId) fetchInventory(devId)
   }, [])
   const [items, setItems] = useState([])
+  const [floats, setFloats] = useState({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [selectedItem, setSelectedItem] = useState(null)
@@ -42,6 +44,7 @@ export default function App() {
   async function fetchInventory(id) {
     setLoading(true)
     setError(null)
+    setFloats({})
     try {
       const allAssets = []
       const descMap = {}
@@ -78,11 +81,34 @@ export default function App() {
 
       setItems(merged)
       setSteamId(id)
+
+      // Fetch floats for all wearable items in the background
+      fetchFloats(merged, id)
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  function fetchFloats(items, id) {
+    const wearable = items.filter(item =>
+      item.tags?.some(t => t.category === 'Exterior') && item.actions?.[0]?.link
+    )
+    wearable.forEach(item => {
+      const inspectUrl = item.actions[0].link
+        .replace('%owner_steamid%', id)
+        .replace('%assetid%', item.assetid)
+      fetch(`/csfloat-inspect/?url=${encodeURIComponent(inspectUrl)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          const float = data?.iteminfo?.floatvalue
+          if (float != null) {
+            setFloats(prev => ({ ...prev, [item.assetid]: float }))
+          }
+        })
+        .catch(() => {})
+    })
   }
 
   function handleSubmit(e) {
@@ -148,6 +174,9 @@ export default function App() {
                     {item.tags?.find(t => t.category === 'Exterior') && (
                       <span className="item-wear">
                         {item.tags.find(t => t.category === 'Exterior').localized_tag_name}
+                        {floats[item.assetid] != null && (
+                          <span className="item-float">{floats[item.assetid].toFixed(4)}</span>
+                        )}
                       </span>
                     )}
                   </div>
