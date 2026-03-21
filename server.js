@@ -63,7 +63,13 @@ app.post('/auth/logout', (req, res) => {
 app.get('/api/profile', async (req, res) => {
   if (!req.session.steamId) return res.status(401).json({ error: 'Not authenticated' })
   try {
-    const r = await fetch(`https://steamcommunity.com/profiles/${req.session.steamId}?xml=1`)
+    const r = await fetch(`https://steamcommunity.com/profiles/${req.session.steamId}?xml=1`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/xml,application/xml,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    })
     const xml = await r.text()
     const name   = xml.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/)?.[1] ?? null
     const avatar = xml.match(/<avatarFull><!\[CDATA\[(.*?)\]\]><\/avatarFull>/)?.[1] ?? null

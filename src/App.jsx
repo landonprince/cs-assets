@@ -5,7 +5,7 @@ import ProfilePage from './ProfilePage'
 import Dashboard from './Dashboard'
 import {
   STEAM_IMAGE_BASE, RARITY_COLORS, RARITY_ORDER, RARITY_LABELS,
-  WEAR_ORDER, WEAR_LABELS, getRarity, getWear, stripWear,
+  WEAR_ORDER, WEAR_LABELS, TYPE_ORDER, getRarity, getWear, getItemType, stripWear,
 } from './constants'
 
 function parsePrice(str) {
@@ -25,6 +25,24 @@ async function fetchInBatches(names, fetchFn, batchSize = 5, delayMs = 300) {
     if (i + batchSize < names.length) await new Promise(r => setTimeout(r, delayMs))
   }
   return results
+}
+
+function priceSnapshotKey(steamId) { return `csassets-item-prices-${steamId}` }
+
+function loadPriceSnapshots(steamId) {
+  try { return JSON.parse(localStorage.getItem(priceSnapshotKey(steamId))) || { prev: null, curr: null } }
+  catch { return { prev: null, curr: null } }
+}
+
+function savePriceSnapshot(steamId, steam, csfloat) {
+  const today = new Date().toISOString().slice(0, 10)
+  const data = loadPriceSnapshots(steamId)
+  if (data.curr?.date !== today) {
+    data.prev = data.curr
+    data.curr = { date: today, steam, csfloat }
+    localStorage.setItem(priceSnapshotKey(steamId), JSON.stringify(data))
+  }
+  return data.prev
 }
 
 function DualRangeSlider({ lo, hi, min, max, onChange }) {
@@ -55,13 +73,25 @@ export default function App() {
   const [view, setView]                 = useState('dashboard')
   const [sortBy, setSortBy]             = useState('default')
   const [filterRarity, setFilterRarity] = useState('all')
+  const [filterType, setFilterType]     = useState('all')
   const [filterWear, setFilterWear]     = useState('all')
+  const [searchQuery, setSearchQuery]   = useState('')
   const [profile, setProfile]           = useState(null)
   const [steamPrices, setSteamPrices]   = useState({})
   const [csfloatPrices, setCsfloatPrices] = useState({})
   const [pricesLoading, setPricesLoading] = useState(false)
+  const [prevSteamPrices, setPrevSteamPrices]     = useState({})
+  const [prevCsfloatPrices, setPrevCsfloatPrices] = useState({})
   const [sliderBounds] = useState([0, 1000])
   const [priceRange, setPriceRange] = useState([0, 1000])
+  const [minInput, setMinInput] = useState('')
+  const [maxInput, setMaxInput] = useState('')
+
+  // Keep text inputs in sync when slider moves
+  useEffect(() => {
+    setMinInput(priceRange[0] <= sliderBounds[0] ? '' : String(priceRange[0]))
+    setMaxInput(priceRange[1] >= sliderBounds[1] ? '' : String(priceRange[1]))
+  }, [priceRange, sliderBounds])
   const pricesFetched    = useRef({ steam: false, csfloat: false })
   const loadingCountRef  = useRef(0)
 
@@ -88,6 +118,24 @@ export default function App() {
     if (!steamId) return
     fetch('/api/profile').then(r => r.json()).then(setProfile).catch(() => {})
   }, [steamId])
+
+  // Load previous day's item prices for % change display
+  useEffect(() => {
+    if (!steamId) return
+    const saved = loadPriceSnapshots(steamId)
+    if (saved.prev) {
+      setPrevSteamPrices(saved.prev.steam || {})
+      setPrevCsfloatPrices(saved.prev.csfloat || {})
+    }
+  }, [steamId])
+
+  // Save item price snapshot once prices finish loading
+  const priceSavedRef = useRef(false)
+  useEffect(() => {
+    if (pricesLoading || priceSavedRef.current || !steamId || Object.keys(steamPrices).length === 0) return
+    priceSavedRef.current = true
+    savePriceSnapshot(steamId, steamPrices, csfloatPrices)
+  }, [pricesLoading, steamId, steamPrices, csfloatPrices])
 
 
   async function fetchInventory(id) {
@@ -198,6 +246,12 @@ export default function App() {
   const displayedItems = useMemo(() => {
     let result = [...items]
 
+    if (searchQuery.trim())
+      result = result.filter(item =>
+        (item.market_hash_name || item.name).toLowerCase().includes(searchQuery.trim().toLowerCase())
+      )
+    if (filterType !== 'all')
+      result = result.filter(item => getItemType(item) === filterType)
     if (filterRarity !== 'all')
       result = result.filter(item => getRarity(item) === filterRarity)
     if (filterWear !== 'all')
@@ -259,7 +313,7 @@ export default function App() {
       })
 
     return result
-  }, [items, sortBy, filterRarity, filterWear, steamPrices, csfloatPrices, priceRange, sliderBounds])
+  }, [items, sortBy, searchQuery, filterType, filterRarity, filterWear, steamPrices, csfloatPrices, priceRange, sliderBounds])
 
   if (loading) {
     return (
@@ -274,15 +328,17 @@ export default function App() {
     return (
       <div className="inventory-page">
         <header className="inv-header">
-          <h1 style={{fontWeight:700}}>CS<span style={{color:'var(--accent)'}}>Assets</span></h1>
-          <nav className="inv-nav">
-            <button className={`nav-tab ${view === 'dashboard' ? 'active' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
-            <button className={`nav-tab ${view === 'inventory' ? 'active' : ''}`} onClick={() => setView('inventory')}>Inventory</button>
-            <button className={`nav-tab ${view === 'profile' ? 'active' : ''}`} onClick={() => setView('profile')}>Profile</button>
-          </nav>
-          <div className="inv-meta">
-            {view === 'inventory' && <span className="item-count">{displayedItems.length} / {items.length} items</span>}
-            <button className="btn-outline" onClick={handleLogout}>Sign Out</button>
+          <h1 style={{fontWeight:700, cursor:'pointer'}} onClick={() => setView('dashboard')}>CS<span style={{color:'var(--accent)'}}>Assets</span></h1>
+          <div className="inv-header-right">
+            <nav className="inv-nav">
+              <button className={`nav-tab ${view === 'dashboard' ? 'active' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
+              <button className={`nav-tab ${view === 'inventory' ? 'active' : ''}`} onClick={() => setView('inventory')}>Portfolio</button>
+            </nav>
+            <button className={`nav-avatar-btn ${view === 'profile' ? 'active' : ''}`} onClick={() => setView('profile')}>
+              {profile?.avatar
+                ? <img src={profile.avatar} alt="profile" />
+                : <div className="nav-avatar-placeholder" />}
+            </button>
           </div>
         </header>
 
@@ -304,10 +360,27 @@ export default function App() {
             csfloatPrices={csfloatPrices}
             steamId={steamId}
             profile={profile}
+            onLogout={handleLogout}
           />
         )}
 
         {view === 'inventory' && (<>
+        <div className="search-wrap">
+          <svg className="search-icon" viewBox="0 0 16 16" fill="none">
+            <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
+            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          <input
+            className="search-input"
+            type="text"
+            placeholder="Search items…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button className="search-clear" onClick={() => setSearchQuery('')}>✕</button>
+          )}
+        </div>
         <div className="inv-controls">
           <div className="control-row">
             <span className="control-label">Sort</span>
@@ -329,6 +402,24 @@ export default function App() {
               </svg>
             </div>
             {pricesLoading && <span className="prices-loading">Fetching prices…</span>}
+            <span className="item-count">{displayedItems.length} / {items.length} items</span>
+          </div>
+
+          <div className="control-row">
+            <span className="control-label">Type</span>
+            <div className="filter-pills">
+              <button
+                className={`filter-pill ${filterType === 'all' ? 'active' : ''}`}
+                onClick={() => setFilterType('all')}
+              >All</button>
+              {TYPE_ORDER.map(t => (
+                <button
+                  key={t}
+                  className={`filter-pill ${filterType === t ? 'active' : ''}`}
+                  onClick={() => setFilterType(t)}
+                >{t}</button>
+              ))}
+            </div>
           </div>
 
           <div className="control-row">
@@ -376,16 +467,42 @@ export default function App() {
             <span className="control-label">Price</span>
             {Object.keys(steamPrices).length > 0 ? (
               <div className="price-filter-wrap">
-                <span className="price-range-val">${priceRange[0].toFixed(2)}</span>
+                <input
+                  className="price-range-input"
+                  type="number"
+                  step="any"
+                  placeholder="0"
+                  value={minInput}
+                  onChange={e => setMinInput(e.target.value)}
+                  onBlur={() => {
+                    if (minInput === '') { setPriceRange([sliderBounds[0], priceRange[1]]); return }
+                    const v = parseFloat(minInput)
+                    if (!isNaN(v)) setPriceRange([Math.max(sliderBounds[0], Math.min(v, priceRange[1] - 0.01)), priceRange[1]])
+                    else setMinInput(priceRange[0] <= sliderBounds[0] ? '' : String(priceRange[0]))
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                />
                 <DualRangeSlider
                   lo={priceRange[0]} hi={priceRange[1]}
                   min={sliderBounds[0]} max={sliderBounds[1]}
                   onChange={setPriceRange}
                 />
-                <span className="price-range-val">
-                  {priceRange[1] >= sliderBounds[1] ? '∞' : `$${priceRange[1].toFixed(2)}`}
-                </span>
-                {priceRange[0] > sliderBounds[0] && (
+                <input
+                  className="price-range-input"
+                  type="number"
+                  step="any"
+                  placeholder="∞"
+                  value={maxInput}
+                  onChange={e => setMaxInput(e.target.value)}
+                  onBlur={() => {
+                    if (maxInput === '') { setPriceRange([priceRange[0], sliderBounds[1]]); return }
+                    const v = parseFloat(maxInput)
+                    if (!isNaN(v)) setPriceRange([priceRange[0], Math.max(priceRange[0] + 0.01, Math.min(v, sliderBounds[1]))])
+                    else setMaxInput(priceRange[1] >= sliderBounds[1] ? '' : String(priceRange[1]))
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                />
+                {(priceRange[0] > sliderBounds[0] || priceRange[1] < sliderBounds[1]) && (
                   <button className="filter-pill" onClick={() => setPriceRange(sliderBounds)}>Reset</button>
                 )}
               </div>
@@ -421,22 +538,38 @@ export default function App() {
                   <div className="item-info">
                     <span className="item-name">{stripWear(item.market_hash_name || item.name)}</span>
                     {wear && <span className="item-wear">{wear.localized_tag_name}</span>}
-                    <div className="item-prices">
-                      <span className="item-price-tag">
-                        <svg className="item-price-logo" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.187.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25 1.297.539 2.793-.076 3.332-1.375.263-.63.264-1.319.005-1.949s-.75-1.121-1.377-1.383c-.624-.26-1.29-.249-1.878-.03l1.523.63c.956.4 1.409 1.5 1.009 2.455-.397.957-1.497 1.41-2.455 1.012zm11.415-9.303c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.252 0-2.265-1.014-2.265-2.265z"/>
-                        </svg>
-                        {steamPrices[item.market_hash_name] != null
-                          ? `$${steamPrices[item.market_hash_name].toFixed(2)}`
-                          : <span className="item-price-na">—</span>}
-                      </span>
-                      <span className="item-price-tag">
-                        <img className="item-price-logo" src="https://csfloat.com/favicon.ico" alt="CSFloat" />
-                        {csfloatPrices[item.market_hash_name] != null
-                          ? `$${csfloatPrices[item.market_hash_name].toFixed(2)}`
-                          : <span className="item-price-na">—</span>}
-                      </span>
-                    </div>
+                    {(() => {
+                      const sp = steamPrices[item.market_hash_name] ?? null
+                      const cp = csfloatPrices[item.market_hash_name] ?? null
+                      const prevSp = prevSteamPrices[item.market_hash_name] ?? null
+                      const prevCp = prevCsfloatPrices[item.market_hash_name] ?? null
+                      const steamPct = sp != null && prevSp != null && prevSp !== 0 ? ((sp - prevSp) / prevSp) * 100 : null
+                      const csfloatPct = cp != null && prevCp != null && prevCp !== 0 ? ((cp - prevCp) / prevCp) * 100 : null
+                      return (
+                        <div className="item-prices">
+                          <span className="item-price-tag">
+                            <svg className="item-price-logo" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.187.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25 1.297.539 2.793-.076 3.332-1.375.263-.63.264-1.319.005-1.949s-.75-1.121-1.377-1.383c-.624-.26-1.29-.249-1.878-.03l1.523.63c.956.4 1.409 1.5 1.009 2.455-.397.957-1.497 1.41-2.455 1.012zm11.415-9.303c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.252 0-2.265-1.014-2.265-2.265z"/>
+                            </svg>
+                            {sp != null ? `$${sp.toFixed(2)}` : <span className="item-price-na">—</span>}
+                            {steamPct != null && (
+                              <span className={`item-price-pct ${steamPct >= 0 ? 'pct-up' : 'pct-down'}`}>
+                                {steamPct >= 0 ? '+' : ''}{steamPct.toFixed(1)}%
+                              </span>
+                            )}
+                          </span>
+                          <span className="item-price-tag">
+                            <img className="item-price-logo" src="https://csfloat.com/favicon.ico" alt="CSFloat" />
+                            {cp != null ? `$${cp.toFixed(2)}` : <span className="item-price-na">—</span>}
+                            {csfloatPct != null && (
+                              <span className={`item-price-pct ${csfloatPct >= 0 ? 'pct-up' : 'pct-down'}`}>
+                                {csfloatPct >= 0 ? '+' : ''}{csfloatPct.toFixed(1)}%
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               )

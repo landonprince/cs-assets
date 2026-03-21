@@ -1,7 +1,7 @@
 export const STEAM_IMAGE_BASE = 'https://community.akamai.steamstatic.com/economy/image/'
 
 export const RARITY_ORDER = [
-  'Rarity_Contraband', 'Rarity_Ancient', 'Rarity_Legendary',
+  'Rarity_Ancient', 'Rarity_Legendary',
   'Rarity_Mythical', 'Rarity_Rare', 'Rarity_Uncommon', 'Rarity_Common',
 ]
 
@@ -35,6 +35,24 @@ export const WEAR_LABELS = {
   'Field-Tested':   'FT',
   'Well-Worn':      'WW',
   'Battle-Scarred': 'BS',
+}
+
+export const TYPE_ORDER = [
+  'Weapon', 'Knife', 'Gloves', 'Agent', 'Sticker', 'Case',
+  'Music Kit', 'Patch', 'Collectible',
+]
+
+// Steam calls cases/capsules "Container" internally
+const WEAPON_SUBTYPES = new Set([
+  'Rifle', 'Pistol', 'SMG', 'Shotgun', 'Sniper Rifle', 'Machine Gun',
+])
+
+export function getItemType(item) {
+  const raw = item.tags?.find(t => t.category === 'Type')?.localized_tag_name ?? null
+  if (!raw) return null
+  if (WEAPON_SUBTYPES.has(raw)) return 'Weapon'
+  if (raw === 'Container') return 'Case'
+  return raw
 }
 
 export function getRarity(item) {

@@ -3,7 +3,7 @@ import {
   getRarity, stripWear,
 } from './constants'
 
-export default function ProfilePage({ items, steamPrices, csfloatPrices, steamId, profile }) {
+export default function ProfilePage({ items, steamPrices, csfloatPrices, steamId, profile, onLogout }) {
 
   const steamValues  = items.map(i => steamPrices[i.market_hash_name]).filter(v => v != null)
   const csfloatValues = items.map(i => csfloatPrices[i.market_hash_name]).filter(v => v != null)
@@ -35,14 +35,17 @@ export default function ProfilePage({ items, steamPrices, csfloatPrices, steamId
         <div className="profile-hero-info">
           <h2 className="profile-name">{profile?.name ?? '—'}</h2>
           <span className="profile-steamid">Steam ID: {steamId}</span>
-          <a
-            href={`https://steamcommunity.com/profiles/${steamId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-outline profile-link"
-          >
-            View Steam Profile ↗
-          </a>
+          <div className="profile-hero-actions">
+            <a
+              href={`https://steamcommunity.com/profiles/${steamId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-outline profile-link"
+            >
+              View Steam Profile ↗
+            </a>
+            <button className="btn-outline" onClick={onLogout}>Sign Out</button>
+          </div>
         </div>
       </div>
 
