@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   STEAM_IMAGE_BASE, RARITY_COLORS, RARITY_ORDER, RARITY_LABELS,
-  getRarity, stripWear,
+  getRarity, stripWear, getItemType, TYPE_ORDER,
 } from './constants'
 
 function historyKey(steamId) { return `csassets-history-${steamId}` }
@@ -23,58 +23,71 @@ function saveSnapshot(steamId, steam, csfloat) {
   return trimmed
 }
 
-// ── Line chart ─────────────────────────────────────────────────
-function ValueLineChart({ data, color, gradId }) {
+const STEAM_COLOR   = 'var(--accent)'
+const CSFLOAT_COLOR = '#f59e0b'
+
+// ── Dual line chart ─────────────────────────────────────────────
+function DualValueLineChart({ steamData, csfloatData }) {
   const [tooltip, setTooltip] = useState(null)
 
-  const W = 560, H = 150
+  const W = 560, H = 160
   const PAD = { top: 12, right: 12, bottom: 26, left: 62 }
   const cW = W - PAD.left - PAD.right
   const cH = H - PAD.top - PAD.bottom
 
-  const values = data.map(d => d.value)
-  const minV   = Math.min(...values)
-  const maxV   = Math.max(...values)
-  const range  = maxV - minV || 1
+  // Shared y scale across both series
+  const allValues = [...steamData.map(d => d.value), ...csfloatData.map(d => d.value)]
+  const minV = Math.min(...allValues)
+  const maxV = Math.max(...allValues)
+  const range = maxV - minV || 1
 
-  const toX = i => PAD.left + (i / Math.max(data.length - 1, 1)) * cW
+  const toX = i => PAD.left + (i / Math.max(steamData.length - 1, 1)) * cW
   const toY = v => PAD.top + cH - ((v - minV) / range) * cH
 
-  const points = data.map((d, i) => ({
+  const steamPts = steamData.map((d, i) => ({
     x: toX(i),
     y: toY(d.value),
-    value: d.value,
+    steam: d.value,
+    csfloat: csfloatData[i]?.value ?? null,
     date: new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
   }))
 
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
-  const areaPath = `${linePath} L${points.at(-1).x},${PAD.top + cH} L${points[0].x},${PAD.top + cH}Z`
+  const makeLine = pts => pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
+  const makeArea = (pts, linePath) =>
+    `${linePath} L${pts.at(-1).x},${PAD.top + cH} L${pts[0].x},${PAD.top + cH}Z`
 
-  const yTicks = [0, 1, 2, 3].map(i => {
-    const val = minV + (range * i) / 3
-    return { val, y: toY(val) }
-  })
+  const csfloatPts = csfloatData.map((d, i) => ({ x: toX(i), y: toY(d.value) }))
 
-  const xIdxs = data.length <= 5
-    ? data.map((_, i) => i)
-    : [0, Math.floor(data.length * 0.25), Math.floor(data.length * 0.5), Math.floor(data.length * 0.75), data.length - 1]
-  const xTicks = [...new Set(xIdxs)].map(i => ({ label: points[i].date, x: toX(i) }))
+  const steamLine    = makeLine(steamPts)
+  const csfloatLine  = makeLine(csfloatPts)
+  const steamArea    = makeArea(steamPts, steamLine)
+  const csfloatArea  = makeArea(csfloatPts, csfloatLine)
+
+  const yTicks = [0, 1, 2, 3].map(i => ({ val: minV + (range * i) / 3, y: toY(minV + (range * i) / 3) }))
+  const xIdxs  = steamData.length <= 5
+    ? steamData.map((_, i) => i)
+    : [0, Math.floor(steamData.length * 0.25), Math.floor(steamData.length * 0.5), Math.floor(steamData.length * 0.75), steamData.length - 1]
+  const xTicks = [...new Set(xIdxs)].map(i => ({ label: steamPts[i].date, x: toX(i) }))
 
   const handleMouseMove = useCallback((e) => {
     const rect = e.currentTarget.getBoundingClientRect()
     const svgX = ((e.clientX - rect.left) / rect.width) * W
-    const idx = Math.round(((svgX - PAD.left) / cW) * (data.length - 1))
-    setTooltip(points[Math.max(0, Math.min(data.length - 1, idx))])
-  }, [points, data.length, cW])
+    const idx = Math.max(0, Math.min(steamData.length - 1, Math.round(((svgX - PAD.left) / cW) * (steamData.length - 1))))
+    setTooltip(steamPts[idx])
+  }, [steamPts, steamData.length, cW])
 
   return (
     <div className="chart-wrap">
       <svg viewBox={`0 0 ${W} ${H}`} className="price-svg"
         onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)}>
         <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.22" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          <linearGradient id="dualSteamGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={STEAM_COLOR} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={STEAM_COLOR} stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="dualCsfloatGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={CSFLOAT_COLOR} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={CSFLOAT_COLOR} stopOpacity="0" />
           </linearGradient>
         </defs>
 
@@ -83,15 +96,16 @@ function ValueLineChart({ data, color, gradId }) {
             stroke="var(--border)" strokeDasharray="3 4" strokeWidth="1" />
         ))}
 
-        <path d={areaPath} fill={`url(#${gradId})`} />
-        <path d={linePath} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+        <path d={csfloatArea} fill="url(#dualCsfloatGrad)" />
+        <path d={csfloatLine} fill="none" stroke={CSFLOAT_COLOR} strokeWidth="2" strokeLinejoin="round" />
+        <path d={steamArea} fill="url(#dualSteamGrad)" />
+        <path d={steamLine} fill="none" stroke={STEAM_COLOR} strokeWidth="2" strokeLinejoin="round" />
 
         {yTicks.map(({ val, y }, i) => (
           <text key={i} x={PAD.left - 6} y={y + 4} textAnchor="end" fontSize="10" fill="var(--text)">
             ${val.toFixed(2)}
           </text>
         ))}
-
         {xTicks.map(({ label, x }, i) => (
           <text key={i} x={x} y={H - 4} textAnchor="middle" fontSize="10" fill="var(--text)">
             {label}
@@ -101,9 +115,13 @@ function ValueLineChart({ data, color, gradId }) {
         {tooltip && (
           <>
             <line x1={tooltip.x} y1={PAD.top} x2={tooltip.x} y2={PAD.top + cH}
-              stroke={color} strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />
+              stroke="var(--border)" strokeWidth="1" strokeDasharray="3 3" opacity="0.8" />
             <circle cx={tooltip.x} cy={tooltip.y} r="4"
-              fill={color} stroke="var(--bg)" strokeWidth="2" />
+              fill={STEAM_COLOR} stroke="var(--bg)" strokeWidth="2" />
+            {tooltip.csfloat != null && (
+              <circle cx={tooltip.x} cy={toY(tooltip.csfloat)} r="4"
+                fill={CSFLOAT_COLOR} stroke="var(--bg)" strokeWidth="2" />
+            )}
           </>
         )}
       </svg>
@@ -112,7 +130,10 @@ function ValueLineChart({ data, color, gradId }) {
         {tooltip && (
           <>
             <span className="tt-date">{tooltip.date}</span>
-            <span className="tt-price" style={{ color }}>${tooltip.value.toFixed(2)}</span>
+            <span className="tt-price" style={{ color: STEAM_COLOR }}>${tooltip.steam.toFixed(2)}</span>
+            {tooltip.csfloat != null && (
+              <span className="tt-price" style={{ color: CSFLOAT_COLOR }}>${tooltip.csfloat.toFixed(2)}</span>
+            )}
           </>
         )}
       </div>
@@ -150,6 +171,27 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, steamId, 
 
   const steamHistory   = history.map(h => ({ date: h.date, value: h.steam }))
   const csfloatHistory = history.map(h => ({ date: h.date, value: h.csfloat }))
+
+  // Performance metrics from history
+  const prevEntry   = history.length >= 2 ? history[history.length - 2] : null
+  const firstEntry  = history.length >= 1 ? history[0] : null
+  const allTimeSteamHigh = history.length > 0 ? Math.max(...history.map(h => h.steam)) : null
+
+  const change24h     = pricesLoaded && prevEntry ? totalSteam - prevEntry.steam : null
+  const change24hPct  = change24h != null && prevEntry.steam > 0 ? (change24h / prevEntry.steam) * 100 : null
+  const totalReturn   = pricesLoaded && firstEntry && firstEntry.steam > 0
+    ? ((totalSteam - firstEntry.steam) / firstEntry.steam) * 100 : null
+  const avgItemValue  = pricesLoaded && items.length > 0 ? totalSteam / items.length : null
+
+  // Value by category
+  const categoryValues = {}
+  for (const item of items) {
+    const type  = getItemType(item)
+    const price = steamPrices[item.market_hash_name] ?? 0
+    if (type) categoryValues[type] = (categoryValues[type] ?? 0) + price
+  }
+  const maxCatValue = Math.max(...Object.values(categoryValues), 1)
+  const sortedCategories = TYPE_ORDER.filter(t => categoryValues[t] > 0)
 
   return (
     <div className="dashboard">
@@ -191,16 +233,66 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, steamId, 
         </div>
       </div>
 
-      {/* ── Value charts ── */}
+      {/* ── Performance stats ── */}
+      <div className="dash-stats">
+        <div className="dash-stat">
+          <span className="dash-stat-label">24h Change</span>
+          <span className={`dash-stat-value dash-stat-perf ${change24h == null ? '' : change24h >= 0 ? 'perf-up' : 'perf-down'}`}>
+            {change24h == null
+              ? <span className="dash-stat-loading">—</span>
+              : <>
+                  {change24h >= 0 ? '+' : ''}${change24h.toFixed(2)}
+                  <span className="dash-stat-pct">{change24hPct >= 0 ? '+' : ''}{change24hPct.toFixed(1)}%</span>
+                </>
+            }
+          </span>
+        </div>
+        <div className="dash-stat">
+          <span className="dash-stat-label">All-Time High</span>
+          <span className="dash-stat-value">
+            {pricesLoaded && allTimeSteamHigh != null
+              ? `$${allTimeSteamHigh.toFixed(2)}`
+              : <span className="dash-stat-loading">Loading…</span>}
+          </span>
+        </div>
+        <div className="dash-stat">
+          <span className="dash-stat-label">Total Return</span>
+          <span className={`dash-stat-value dash-stat-perf ${totalReturn == null ? '' : totalReturn >= 0 ? 'perf-up' : 'perf-down'}`}>
+            {totalReturn == null
+              ? <span className="dash-stat-loading">—</span>
+              : <>{totalReturn >= 0 ? '+' : ''}{totalReturn.toFixed(1)}%</>
+            }
+          </span>
+        </div>
+        <div className="dash-stat">
+          <span className="dash-stat-label">Avg Item Value</span>
+          <span className="dash-stat-value">
+            {avgItemValue != null
+              ? `$${avgItemValue.toFixed(2)}`
+              : <span className="dash-stat-loading">Loading…</span>}
+          </span>
+        </div>
+      </div>
+
+      {/* ── Value chart ── */}
       <div className="dash-section">
         <div className="dash-section-header">
-          <h3 className="dash-section-title">Steam Portfolio Value</h3>
+          <h3 className="dash-section-title">Portfolio Value</h3>
           {pricesLoaded && steamHistory.length > 0 && (
-            <span className="dash-chart-current">${totalSteam.toFixed(2)}</span>
+            <div className="dash-chart-legend">
+              <span className="dash-legend-item">
+                <span className="dash-legend-dot" style={{ background: 'var(--accent)' }} />
+                Steam <strong>${totalSteam.toFixed(2)}</strong>
+              </span>
+              <span className="dash-legend-item">
+                <span className="dash-legend-dot" style={{ background: '#f59e0b' }} />
+                CSFloat <strong>${totalCsfloat.toFixed(2)}</strong>
+              </span>
+            </div>
           )}
         </div>
         {steamHistory.length >= 2 ? (
-          <ValueLineChart data={steamHistory} color="var(--accent)" gradId="dashSteamGrad" />
+          <DualValueLineChart steamData={steamHistory} csfloatData={csfloatHistory} />
         ) : (
           <p className="dash-chart-empty">
             {pricesLoaded
@@ -210,23 +302,28 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, steamId, 
         )}
       </div>
 
-      <div className="dash-section">
-        <div className="dash-section-header">
-          <h3 className="dash-section-title">CSFloat Portfolio Value</h3>
-          {pricesLoaded && csfloatHistory.length > 0 && (
-            <span className="dash-chart-current">${totalCsfloat.toFixed(2)}</span>
-          )}
+      {/* ── Value by Category ── */}
+      {pricesLoaded && sortedCategories.length > 0 && (
+        <div className="dash-section">
+          <div className="dash-section-header">
+            <h3 className="dash-section-title">Value by Category</h3>
+          </div>
+          <div className="dash-cat-list">
+            {sortedCategories.map(type => (
+              <div className="dash-cat-row" key={type}>
+                <span className="dash-cat-label">{type}</span>
+                <div className="dash-cat-track">
+                  <div
+                    className="dash-cat-fill"
+                    style={{ width: `${(categoryValues[type] / maxCatValue) * 100}%` }}
+                  />
+                </div>
+                <span className="dash-cat-value">${categoryValues[type].toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        {csfloatHistory.length >= 2 ? (
-          <ValueLineChart data={csfloatHistory} color="#0078D0" gradId="dashCsfloatGrad" />
-        ) : (
-          <p className="dash-chart-empty">
-            {pricesLoaded
-              ? 'Come back tomorrow — your first data point has been saved.'
-              : 'Loading prices…'}
-          </p>
-        )}
-      </div>
+      )}
 
       <div className="dash-columns">
         {/* ── Top items ── */}
