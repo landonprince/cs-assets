@@ -67,3 +67,14 @@ export function getWear(item) {
 export function stripWear(name = '') {
   return name.replace(/ \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/, '')
 }
+
+export function parseLineData(html) {
+  const match = html.match(/var line1\s*=\s*(\[[\s\S]*?\]);/)
+  if (!match) return null
+  try { return JSON.parse(match[1]) } catch { return null }
+}
+
+export function formatSteamDate(dateStr) {
+  const d = new Date(dateStr.replace(/ \d+: \+0$/, ''))
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}

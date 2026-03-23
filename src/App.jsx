@@ -6,13 +6,8 @@ import Dashboard from './Dashboard'
 import {
   STEAM_IMAGE_BASE, RARITY_COLORS, RARITY_ORDER, RARITY_LABELS,
   WEAR_ORDER, WEAR_LABELS, TYPE_ORDER, getRarity, getWear, getItemType, stripWear,
+  parseLineData,
 } from './constants'
-
-function parseLineData(html) {
-  const match = html.match(/var line1\s*=\s*(\[[\s\S]*?\]);/)
-  if (!match) return null
-  try { return JSON.parse(match[1]) } catch { return null }
-}
 
 function filterAndAggregateWeek(data) {
   const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
@@ -74,6 +69,15 @@ async function fetchInBatches(names, fetchFn, batchSize = 5, delayMs = 300) {
   return results
 }
 
+function alertsKey(steamId) { return `csassets-alerts-${steamId}` }
+function loadAlerts(steamId) {
+  try { return JSON.parse(localStorage.getItem(alertsKey(steamId))) || [] }
+  catch { return [] }
+}
+function saveAlerts(steamId, alerts) {
+  localStorage.setItem(alertsKey(steamId), JSON.stringify(alerts))
+}
+
 function priceSnapshotKey(steamId) { return `csassets-item-prices-${steamId}` }
 
 function loadPriceSnapshots(steamId) {
@@ -90,6 +94,74 @@ function savePriceSnapshot(steamId, steam, csfloat) {
     localStorage.setItem(priceSnapshotKey(steamId), JSON.stringify(data))
   }
   return data.prev
+}
+
+function CardAlertModal({ item, onClose, onAddAlert }) {
+  const [alertPrice, setAlertPrice] = useState('')
+  const [alertDirection, setAlertDirection] = useState('below')
+  const [alertAdded, setAlertAdded] = useState(false)
+
+  return (
+    <div className="alert-modal-overlay" onClick={onClose}>
+      <div className="alert-modal" onClick={e => e.stopPropagation()}>
+        <div className="alert-modal-header">
+          <span className="alert-modal-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            Set Price Alert
+          </span>
+          <button className="alerts-panel-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="alert-modal-item">
+          <span>{stripWear(item.market_hash_name || item.name)}</span>
+          {getWear(item) && <span className="item-wear">{getWear(item)}</span>}
+        </div>
+        <div className="alert-modal-form">
+          <span className="alert-modal-label">Notify me when price goes</span>
+          <select className="alert-direction-select" value={alertDirection} onChange={e => setAlertDirection(e.target.value)}>
+            <option value="below">Below</option>
+            <option value="above">Above</option>
+          </select>
+          <input
+            className="alert-price-input"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="$ Target price"
+            value={alertPrice}
+            autoFocus
+            onChange={e => { setAlertPrice(e.target.value); setAlertAdded(false) }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                const price = parseFloat(alertPrice)
+                if (!isNaN(price) && price > 0) {
+                  onAddAlert(item.market_hash_name, price, alertDirection)
+                  setAlertAdded(true)
+                  setTimeout(onClose, 800)
+                }
+              }
+            }}
+          />
+        </div>
+        <button
+          className="alert-add-btn alert-modal-submit"
+          disabled={!alertPrice || isNaN(parseFloat(alertPrice)) || parseFloat(alertPrice) <= 0}
+          onClick={() => {
+            const price = parseFloat(alertPrice)
+            if (!isNaN(price) && price > 0) {
+              onAddAlert(item.market_hash_name, price, alertDirection)
+              setAlertAdded(true)
+              setTimeout(onClose, 800)
+            }
+          }}
+        >
+          {alertAdded ? '✓ Alert Added' : 'Add Alert'}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function DualRangeSlider({ lo, hi, min, max, onChange }) {
@@ -140,6 +212,9 @@ export default function App() {
     setMaxInput(priceRange[1] >= sliderBounds[1] ? '' : String(priceRange[1]))
   }, [priceRange, sliderBounds])
   const [sparklines, setSparklines] = useState({})
+  const [alerts, setAlerts]         = useState([])
+  const [showAlerts, setShowAlerts] = useState(false)
+  const [alertItem, setAlertItem]   = useState(null)
   const pricesFetched      = useRef({ steam: false, csfloat: false })
   const sparklinesFetched  = useRef(false)
   const loadingCountRef    = useRef(0)
@@ -178,6 +253,36 @@ export default function App() {
     }
   }, [steamId])
 
+  // Load alerts when authenticated
+  useEffect(() => {
+    if (!steamId) return
+    setAlerts(loadAlerts(steamId))
+  }, [steamId])
+
+  // Check alerts whenever steam prices update
+  useEffect(() => {
+    if (Object.keys(steamPrices).length === 0 || alerts.length === 0) return
+    let anyTriggered = false
+    const updated = alerts.map(alert => {
+      if (alert.triggered) return alert
+      const price = steamPrices[alert.market_hash_name]
+      if (price == null) return alert
+      const hit = alert.direction === 'above' ? price >= alert.targetPrice : price <= alert.targetPrice
+      if (!hit) return alert
+      anyTriggered = true
+      if (Notification.permission === 'granted') {
+        new Notification('CSAssets Price Alert', {
+          body: `${stripWear(alert.market_hash_name)} is now $${price.toFixed(2)} (target: ${alert.direction === 'above' ? '≥' : '≤'} $${alert.targetPrice.toFixed(2)})`,
+        })
+      }
+      return { ...alert, triggered: true, triggeredPrice: price, triggeredAt: new Date().toISOString() }
+    })
+    if (anyTriggered) {
+      setAlerts(updated)
+      saveAlerts(steamId, updated)
+    }
+  }, [steamPrices, alerts, steamId])
+
   // Fetch sparkline data for all items after prices load
   useEffect(() => {
     if (pricesLoading || Object.keys(steamPrices).length === 0 || sparklinesFetched.current) return
@@ -214,6 +319,8 @@ export default function App() {
 
 
   async function fetchInventory(id) {
+    pricesFetched.current = { steam: false, csfloat: false }
+    sparklinesFetched.current = false
     setLoading(true)
     setError(null)
     try {
@@ -305,6 +412,37 @@ export default function App() {
     })
     setCsfloatPrices(results)
     finishLoading()
+  }
+
+  function addAlert(market_hash_name, targetPrice, direction) {
+    if (Notification.permission === 'default') Notification.requestPermission()
+    const newAlert = {
+      id: `${Date.now()}-${Math.random()}`,
+      market_hash_name,
+      targetPrice,
+      direction,
+      triggered: false,
+      createdAt: new Date().toISOString(),
+    }
+    const updated = [...alerts, newAlert]
+    setAlerts(updated)
+    saveAlerts(steamId, updated)
+  }
+
+  function removeAlert(id) {
+    const updated = alerts.filter(a => a.id !== id)
+    setAlerts(updated)
+    saveAlerts(steamId, updated)
+  }
+
+  function refreshPrices() {
+    pricesFetched.current = { steam: false, csfloat: false }
+    sparklinesFetched.current = false
+    setSteamPrices({})
+    setCsfloatPrices({})
+    setSparklines({})
+    loadSteamPrices(items)
+    loadCsfloatPrices(items)
   }
 
   function handleSortChange(value) {
@@ -399,8 +537,21 @@ export default function App() {
         return pa - pb
       })
 
+    else if (sortBy === 'pct-desc' || sortBy === 'pct-asc') {
+      result.sort((a, b) => {
+        const spa = steamPrices[a.market_hash_name], psa = prevSteamPrices[a.market_hash_name]
+        const spb = steamPrices[b.market_hash_name], psb = prevSteamPrices[b.market_hash_name]
+        const pctA = spa != null && psa != null && psa !== 0 ? (spa - psa) / psa : null
+        const pctB = spb != null && psb != null && psb !== 0 ? (spb - psb) / psb : null
+        if (pctA == null && pctB == null) return 0
+        if (pctA == null) return 1
+        if (pctB == null) return -1
+        return sortBy === 'pct-desc' ? pctB - pctA : pctA - pctB
+      })
+    }
+
     return result
-  }, [items, sortBy, searchQuery, filterType, filterRarity, filterWear, steamPrices, csfloatPrices, priceRange, sliderBounds])
+  }, [items, sortBy, searchQuery, filterType, filterRarity, filterWear, steamPrices, csfloatPrices, prevSteamPrices, priceRange, sliderBounds])
 
   if (loading) {
     return (
@@ -415,12 +566,41 @@ export default function App() {
     return (
       <div className="inventory-page">
         <header className="inv-header">
-          <h1 style={{fontWeight:700, cursor:'pointer'}} onClick={() => setView('dashboard')}>CS<span style={{color:'var(--accent)'}}>Assets</span></h1>
+          <div style={{display:'flex', alignItems:'center', gap:'10px', cursor:'pointer'}} onClick={() => setView('dashboard')}>
+            <svg width="26" height="28" viewBox="0 0 26 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <mask id="logo-mask-nav">
+                  <rect width="26" height="28" fill="white"/>
+                  <polyline points="-4,21 8.5,12 13.5,15 30,6" stroke="black" strokeWidth="3.25" strokeLinecap="butt" strokeLinejoin="miter"/>
+                </mask>
+              </defs>
+              <path d="M13 1.5 L24 5.5 L24 15 C24 21 19 25.5 13 27 C7 25.5 2 21 2 15 L2 5.5 Z" fill="var(--accent)" mask="url(#logo-mask-nav)"/>
+            </svg>
+            <h1 style={{fontWeight:700, margin:0}}>CS<span style={{color:'var(--accent)'}}>Assets</span></h1>
+          </div>
           <div className="inv-header-right">
             <nav className="inv-nav">
               <button className={`nav-tab ${view === 'dashboard' ? 'active' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
               <button className={`nav-tab ${view === 'inventory' ? 'active' : ''}`} onClick={() => setView('inventory')}>Portfolio</button>
             </nav>
+            <button className="dash-refresh-btn" onClick={refreshPrices} title="Refresh price data">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                <path d="M23 4v6h-6M1 20v-6h6"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              Refresh
+            </button>
+            <button className={`nav-bell-btn ${showAlerts ? 'active' : ''}`} onClick={() => setShowAlerts(v => !v)} title="Price Alerts">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="17" height="17">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              {alerts.some(a => a.triggered && !a.seen)
+                ? <span className="nav-bell-badge triggered" />
+                : alerts.filter(a => !a.triggered).length > 0
+                  ? <span className="nav-bell-badge">{alerts.filter(a => !a.triggered).length}</span>
+                  : null}
+            </button>
             <button className={`nav-avatar-btn ${view === 'profile' ? 'active' : ''}`} onClick={() => setView('profile')}>
               {profile?.avatar
                 ? <img src={profile.avatar} alt="profile" />
@@ -437,6 +617,7 @@ export default function App() {
             steamId={steamId}
             profile={profile}
             onNavigate={setView}
+            onRefresh={refreshPrices}
           />
         )}
 
@@ -483,6 +664,8 @@ export default function App() {
                 <option value="steam-price-asc">Steam Price: Low → High</option>
                 <option value="csfloat-price-desc">CSFloat Price: High → Low</option>
                 <option value="csfloat-price-asc">CSFloat Price: Low → High</option>
+                <option value="pct-desc">% Change: High → Low</option>
+                <option value="pct-asc">% Change: Low → High</option>
               </select>
               <svg className="select-chevron" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -621,6 +804,36 @@ export default function App() {
                       alt={item.name}
                       loading="lazy"
                     />
+                    {(() => {
+                      const action = item.actions?.[0]?.link
+                      if (!action) return null
+                      const href = action.replace('%owner_steamid%', steamId).replace('%assetid%', item.assetid)
+                      return (
+                        <a
+                          className="card-inspect-btn"
+                          href={href}
+                          title="Inspect in Game"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
+                            <circle cx="10" cy="10" r="6"/>
+                            <line x1="10" y1="7" x2="10" y2="13"/>
+                            <line x1="7" y1="10" x2="13" y2="10"/>
+                            <line x1="14.5" y1="14.5" x2="20" y2="20"/>
+                          </svg>
+                        </a>
+                      )
+                    })()}
+                    <button
+                      className="card-inspect-btn card-alert-btn"
+                      title="Set Price Alert"
+                      onClick={e => { e.stopPropagation(); setAlertItem(item) }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                      </svg>
+                    </button>
                   </div>
                   <div className="item-info">
                     <span className="item-name">{stripWear(item.market_hash_name || item.name)}</span>
@@ -666,7 +879,44 @@ export default function App() {
         )}
 
         {selectedItem && (
-          <PriceModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+          <PriceModal item={selectedItem} onClose={() => setSelectedItem(null)} onOpenAlert={setAlertItem} />
+        )}
+        {alertItem && (
+          <CardAlertModal item={alertItem} onClose={() => setAlertItem(null)} onAddAlert={addAlert} />
+        )}
+
+        {showAlerts && (
+          <div className="alerts-overlay" onClick={() => setShowAlerts(false)}>
+            <div className="alerts-panel" onClick={e => e.stopPropagation()}>
+              <div className="alerts-panel-header">
+                <h3 className="alerts-panel-title">Price Alerts</h3>
+                <button className="alerts-panel-close" onClick={() => setShowAlerts(false)}>✕</button>
+              </div>
+              {alerts.length === 0 ? (
+                <p className="alerts-empty">No alerts set. Open an item and use the alert form to add one.</p>
+              ) : (
+                <div className="alerts-list">
+                  {alerts.map(alert => (
+                    <div key={alert.id} className={`alert-item ${alert.triggered ? 'alert-triggered' : ''}`}>
+                      <div className="alert-item-info">
+                        <span className="alert-item-name">{stripWear(alert.market_hash_name)}</span>
+                        <span className="alert-item-target">
+                          {alert.direction === 'above' ? '≥' : '≤'} ${alert.targetPrice.toFixed(2)}
+                          {alert.triggered && <span className="alert-item-hit"> · hit ${alert.triggeredPrice.toFixed(2)}</span>}
+                        </span>
+                      </div>
+                      <button className="alert-item-delete" onClick={() => removeAlert(alert.id)} title="Remove alert">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {Notification.permission !== 'granted' && (
+                <button className="alerts-notif-btn" onClick={() => Notification.requestPermission()}>
+                  Enable Browser Notifications
+                </button>
+              )}
+            </div>
+          </div>
         )}
         </>)}
       </div>
@@ -676,7 +926,18 @@ export default function App() {
   return (
     <div className="center-screen landing">
       <div className="landing-badge">CS2 Item Portfolio</div>
-      <h1 className="landing-title">CS<span className="landing-accent">Assets</span></h1>
+      <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:'14px'}}>
+        <svg width="56" height="60" viewBox="0 0 26 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <mask id="logo-mask-landing">
+              <rect width="26" height="28" fill="white"/>
+              <polyline points="-4,21 8.5,12 13.5,15 30,6" stroke="black" strokeWidth="3.25" strokeLinecap="butt" strokeLinejoin="miter"/>
+            </mask>
+          </defs>
+          <path d="M13 1.5 L24 5.5 L24 15 C24 21 19 25.5 13 27 C7 25.5 2 21 2 15 L2 5.5 Z" fill="var(--accent)" mask="url(#logo-mask-landing)"/>
+        </svg>
+        <h1 className="landing-title">CS<span className="landing-accent">Assets</span></h1>
+      </div>
       <p className="landing-sub">Live market data for every item in your inventory.</p>
 
       <a href="/auth/steam" className="steam-login-btn">

@@ -142,7 +142,7 @@ function DualValueLineChart({ steamData, csfloatData }) {
 }
 
 // ── Dashboard ──────────────────────────────────────────────────
-export default function Dashboard({ items, steamPrices, csfloatPrices, steamId, profile, onNavigate }) {
+export default function Dashboard({ items, steamPrices, csfloatPrices, steamId, profile, onNavigate, onRefresh }) {
   const [history, setHistory]   = useState(() => loadHistory(steamId))
   const snapshotSaved           = useRef(false)
 
@@ -237,7 +237,7 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, steamId, 
       {/* ── Performance stats ── */}
       <div className="dash-stats">
         <div className="dash-stat">
-          <span className="dash-stat-label">24h Change</span>
+          <span className="dash-stat-label">Daily Change</span>
           <span className={`dash-stat-value dash-stat-perf ${change24h == null ? '' : change24h >= 0 ? 'perf-up' : 'perf-down'}`}>
             {change24h == null
               ? <span className="dash-stat-loading">—</span>
