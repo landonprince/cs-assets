@@ -288,24 +288,17 @@ export default function App() {
     if (pricesLoading || Object.keys(steamPrices).length === 0 || sparklinesFetched.current) return
     sparklinesFetched.current = true
     const uniqueNames = [...new Set(items.map(i => i.market_hash_name).filter(Boolean))]
-    const timer = setTimeout(() => {
-      fetchInBatches(uniqueNames, async name => {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 2000))
-          try {
-            const r = await fetch(`/steam-market/listings/730/${encodeURIComponent(name)}`)
-            if (r.status === 429) continue
-            const html = await r.text()
-            const raw = parseLineData(html)
-            if (!raw || raw.length < 2) return null
-            const daily = filterAndAggregateWeek(raw)
-            return daily.length >= 2 ? daily : null
-          } catch { return null }
-        }
-        return null
-      }, 3, 1000).then(setSparklines)
-    }, 2000)
-    return () => clearTimeout(timer)
+    fetchInBatches(uniqueNames, async name => {
+      try {
+        const r = await fetch(`/steam-market/listings/730/${encodeURIComponent(name)}`)
+        if (!r.ok) return null
+        const html = await r.text()
+        const raw = parseLineData(html)
+        if (!raw || raw.length < 2) return null
+        const daily = filterAndAggregateWeek(raw)
+        return daily.length >= 2 ? daily : null
+      } catch { return null }
+    }, 20, 0).then(setSparklines)
   }, [pricesLoading, steamPrices, items])
 
   // Save item price snapshot once prices finish loading
@@ -825,7 +818,7 @@ export default function App() {
                       )
                     })()}
                     <button
-                      className="card-inspect-btn card-alert-btn"
+                      className={item.actions?.[0]?.link ? 'card-inspect-btn card-alert-btn' : 'card-alert-btn-solo'}
                       title="Set Price Alert"
                       onClick={e => { e.stopPropagation(); setAlertItem(item) }}
                     >

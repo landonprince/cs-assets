@@ -1551,6 +1551,34 @@
   top: unset;
 }
 
+.card-alert-btn-solo {
+  position: absolute;
+  bottom: 7px;
+  right: 12px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  color: var(--text);
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.item-card:hover .card-alert-btn-solo {
+  opacity: 0.85;
+}
+
+.card-alert-btn-solo:hover {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+}
+
 .item-img-wrap img {
   max-width: 100%;
   max-height: 100%;
