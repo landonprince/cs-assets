@@ -3,7 +3,7 @@ import {
   getRarity, stripWear,
 } from './constants'
 
-export default function ProfilePage({ items, steamPrices, csfloatPrices, steamId, profile, onLogout }) {
+export default function ProfilePage({ items, steamPrices, csfloatPrices, steamId, profile, onLogout, onSettings }) {
 
   const steamValues  = items.map(i => steamPrices[i.market_hash_name]).filter(v => v != null)
   const csfloatValues = items.map(i => csfloatPrices[i.market_hash_name]).filter(v => v != null)
@@ -44,6 +44,7 @@ export default function ProfilePage({ items, steamPrices, csfloatPrices, steamId
             >
               View Steam Profile ↗
             </a>
+            <button className="btn-outline" onClick={onSettings}>Settings</button>
             <button className="btn-outline" onClick={onLogout}>Sign Out</button>
           </div>
         </div>
