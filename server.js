@@ -2,23 +2,21 @@ import express from 'express'
 import session from 'express-session'
 
 const app = express()
-const PORT         = process.env.PORT || 3001
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
-const isProd       = process.env.NODE_ENV === 'production'
+const PORT         = 3001
+const FRONTEND_URL = 'http://localhost:5173'
 
-app.set('trust proxy', 1)
 app.use(express.json())
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'cs2-tracker-dev-secret',
+  secret: 'cs2-tracker-dev-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: isProd, sameSite: 'lax', httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 },
+  cookie: { secure: false, sameSite: 'lax', httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 },
 }))
 
 // ── Steam OpenID ───────────────────────────────────────────────
 const STEAM_OPENID = 'https://steamcommunity.com/openid/login'
-const RETURN_URL   = process.env.RETURN_URL || `${FRONTEND_URL}/auth/steam/return`
-const REALM        = process.env.REALM || FRONTEND_URL
+const RETURN_URL   = `${FRONTEND_URL}/auth/steam/return`
+const REALM        = FRONTEND_URL
 
 app.get('/auth/steam', (req, res) => {
   const params = new URLSearchParams({
