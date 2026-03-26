@@ -2,20 +2,23 @@ import express from 'express'
 import session from 'express-session'
 
 const app = express()
-const PORT = 3001
+const PORT         = process.env.PORT || 3001
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const isProd       = process.env.NODE_ENV === 'production'
 
+app.set('trust proxy', 1)
 app.use(express.json())
 app.use(session({
   secret: process.env.SESSION_SECRET || 'cs2-tracker-dev-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, sameSite: 'lax', httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 },
+  cookie: { secure: isProd, sameSite: 'lax', httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 },
 }))
 
 // ── Steam OpenID ───────────────────────────────────────────────
 const STEAM_OPENID = 'https://steamcommunity.com/openid/login'
-const RETURN_URL   = 'http://localhost:5173/auth/steam/return'
-const REALM        = 'http://localhost:5173'
+const RETURN_URL   = process.env.RETURN_URL || `${FRONTEND_URL}/auth/steam/return`
+const REALM        = process.env.REALM || FRONTEND_URL
 
 app.get('/auth/steam', (req, res) => {
   const params = new URLSearchParams({
@@ -32,7 +35,7 @@ app.get('/auth/steam', (req, res) => {
 app.get('/auth/steam/return', async (req, res) => {
   try {
     if (req.query['openid.mode'] !== 'id_res') {
-      return res.redirect('http://localhost:5173?auth=failed')
+      return res.redirect(`${FRONTEND_URL}?auth=failed`)
     }
     const params = new URLSearchParams({ ...req.query, 'openid.mode': 'check_authentication' })
     const r = await fetch(STEAM_OPENID, {
@@ -41,13 +44,13 @@ app.get('/auth/steam/return', async (req, res) => {
       body: params.toString(),
     })
     const text = await r.text()
-    if (!text.includes('is_valid:true')) return res.redirect('http://localhost:5173?auth=failed')
+    if (!text.includes('is_valid:true')) return res.redirect(`${FRONTEND_URL}?auth=failed`)
     const match = req.query['openid.claimed_id']?.match(/(\d{17})$/)
-    if (!match) return res.redirect('http://localhost:5173?auth=failed')
+    if (!match) return res.redirect(`${FRONTEND_URL}?auth=failed`)
     req.session.steamId = match[1]
-    res.redirect('http://localhost:5173')
+    res.redirect(FRONTEND_URL)
   } catch {
-    res.redirect('http://localhost:5173?auth=failed')
+    res.redirect(`${FRONTEND_URL}?auth=failed`)
   }
 })
 
