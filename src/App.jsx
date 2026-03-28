@@ -475,11 +475,26 @@ export default function App() {
     const uniqueNames = [...new Set(itemList.map(i => i.market_hash_name).filter(Boolean))]
     const results = await fetchInBatches(uniqueNames, async name => {
       try {
-        const r = await fetch(`/steam-market/priceoverview/?currency=1&appid=730&market_hash_name=${encodeURIComponent(name)}`)
-        const d = await r.json()
-        return parsePrice(d.lowest_price)
-      } catch { return null }
-    })
+        const url = `/steam-market/priceoverview/?currency=1&appid=730&market_hash_name=${encodeURIComponent(name)}`
+        let r = await fetch(url)
+        if (r.status === 429) {
+          await new Promise(res => setTimeout(res, 2000))
+          r = await fetch(url)
+        }
+        if (r.ok) {
+          const d = await r.json()
+          const p = parsePrice(d.lowest_price)
+          if (p != null) return p
+        }
+      } catch {}
+      // Fallback: parse most recent price from listings HTML
+      try {
+        const html = await fetch(`/steam-market/listings/730/${encodeURIComponent(name)}`).then(r => r.text())
+        const raw = parseLineData(html)
+        if (raw?.length) return raw[raw.length - 1][1]
+      } catch {}
+      return null
+    }, 3, 1000)
     setSteamPrices(results)
     finishLoading()
   }
@@ -639,7 +654,6 @@ export default function App() {
                 <path d="M23 4v6h-6M1 20v-6h6"/>
                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
               </svg>
-              Refresh
             </button>
             <button className={`nav-bell-btn ${showAlerts ? 'active' : ''}`} onClick={() => setShowAlerts(v => !v)} title="Price Alerts">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="17" height="17">

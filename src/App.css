@@ -643,21 +643,90 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 4px 0;
+  padding: 4px 20px;
+  flex-wrap: wrap;
+}
+
+.dash-greeting-hero {
+  margin-left: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 40px;
+  align-self: flex-start;
+}
+
+.dash-greeting-hero-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.dash-greeting-hero-stat + .dash-greeting-hero-stat {
+  padding-left: 40px;
+  border-left: 1px solid var(--border);
+}
+
+.dash-greeting-hero-stat + .dash-greeting-hero-stat .dash-greeting-hero-value {
+  margin-top: 2px;
+}
+
+.dash-greeting-hero-stat--clickable {
+  cursor: pointer;
+}
+
+.dash-greeting-hero-stat--clickable:hover .dash-greeting-hero-value {
+  opacity: 0.85;
+}
+
+.dash-greeting-hero-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  opacity: 0.55;
+}
+
+.dash-greeting-hero-value {
+  font-size: 38px;
+  font-weight: 800;
+  color: var(--text-h);
+  letter-spacing: -1px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dash-greeting-hero-pct.item-price-pct {
+  font-size: 17px;
+  padding: 5.5px 13px 5.5px;
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.dash-greeting-hero-sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  opacity: 0.6;
+  letter-spacing: -0.3px;
+  margin-top: 4px;
 }
 
 .dash-refresh-btn {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 14px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
 }
@@ -690,7 +759,7 @@
   font-size: 20px;
   font-weight: 700;
   color: var(--text-h);
-  margin: 0 0 4px;
+  margin: 0 0 5px;
   letter-spacing: -0.3px;
 }
 
