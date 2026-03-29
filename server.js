@@ -276,7 +276,7 @@ app.post('/api/price-snapshot/refresh', async (req, res) => {
 
 // SPA fallback — must be last
 if (IS_PROD) {
-  app.get('*', (req, res) => res.sendFile(resolve('./dist/index.html')))
+  app.get('/{*splat}', (req, res) => res.sendFile(resolve('./dist/index.html')))
 }
 
 app.listen(PORT, () => console.log(`[server] http://localhost:${PORT}`))
