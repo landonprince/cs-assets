@@ -231,7 +231,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   background: #16171e;
   border: 1px solid var(--border);
   border-radius: 0 0 8px 8px;
@@ -633,7 +633,7 @@
 
 /* ── Dashboard ───────────────────────────────────────────── */
 .dashboard {
-  padding: 8px 0 48px;
+  padding: 0 0 48px;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -830,6 +830,13 @@
   gap: 14px;
 }
 
+.dash-section--bare {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-top: -12px;
+}
+
 .dash-section-header {
   display: flex;
   align-items: center;
@@ -886,13 +893,23 @@
   flex-shrink: 0;
 }
 
-.dash-top-img {
+.dash-top-img-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 52px;
   height: 38px;
-  object-fit: contain;
-  background: linear-gradient(145deg, #0d0e13, #1b1c24);
+  background: linear-gradient(to top, color-mix(in srgb, var(--rarity, #6b6375) 28%, #0d0e13) 0%, #0d0e13 70%);
+  border-bottom: 1px solid var(--rarity, #6b6375);
   border-radius: 4px;
   padding: 4px;
+}
+
+.dash-top-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   flex-shrink: 0;
 }
 
@@ -985,6 +1002,11 @@
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+.dash-legend-dash {
+  flex-shrink: 0;
+  display: block;
 }
 
 .dash-chart-current {

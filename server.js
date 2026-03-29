@@ -5,8 +5,9 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { resolve } from 'path'
 
 const app = express()
-const PORT         = 3001
-const FRONTEND_URL = 'http://localhost:5173'
+const PORT         = process.env.PORT || 3001
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const IS_PROD      = process.env.NODE_ENV === 'production'
 
 // ── Snapshot storage ───────────────────────────────────────────
 const DATA_DIR = resolve('./data')
@@ -109,13 +110,59 @@ cron.schedule('0 2 * * *', () => {
   for (const steamId of loadTrackedUsers()) runDailySnapshot(steamId)
 })
 
+if (IS_PROD) {
+  app.use(express.static(resolve('./dist')))
+}
+
 app.use(express.json())
 app.use(session({
-  secret: 'cs2-tracker-dev-secret',
+  secret: process.env.SESSION_SECRET || 'cs2-tracker-dev-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, sameSite: 'lax', httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 },
+  cookie: { secure: IS_PROD, sameSite: 'lax', httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 },
 }))
+
+// ── Steam market proxy (replaces Vite dev proxy in production) ──
+app.get('/steam-market/*splat', async (req, res) => {
+  const path = req.params.splat
+  const qs   = new URLSearchParams(req.query).toString()
+  const url  = `https://steamcommunity.com/market/${path}${qs ? '?' + qs : ''}`
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://steamcommunity.com/',
+        'Origin': 'https://steamcommunity.com',
+        'Accept': 'text/html,*/*',
+      },
+    })
+    const body = await r.text()
+    res.status(r.status).set('content-type', r.headers.get('content-type') || 'text/plain').send(body)
+  } catch (e) {
+    res.status(502).send(e.message)
+  }
+})
+
+// ── CSFloat proxy (replaces Vite dev proxy in production) ───────
+app.get('/csfloat/*splat', async (req, res) => {
+  const path = req.params.splat
+  const qs   = new URLSearchParams(req.query).toString()
+  const url  = `https://csfloat.com/api/v1/${path}${qs ? '?' + qs : ''}`
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://csfloat.com/',
+        'Origin': 'https://csfloat.com',
+        'Accept': 'application/json',
+      },
+    })
+    const body = await r.text()
+    res.status(r.status).set('content-type', r.headers.get('content-type') || 'application/json').send(body)
+  } catch (e) {
+    res.status(502).send(e.message)
+  }
+})
 
 // ── Steam OpenID ───────────────────────────────────────────────
 const STEAM_OPENID = 'https://steamcommunity.com/openid/login'
@@ -226,5 +273,10 @@ app.post('/api/price-snapshot/refresh', async (req, res) => {
   res.json({ ok: true })
   runDailySnapshot(req.session.steamId)
 })
+
+// SPA fallback — must be last
+if (IS_PROD) {
+  app.get('*', (req, res) => res.sendFile(resolve('./dist/index.html')))
+}
 
 app.listen(PORT, () => console.log(`[server] http://localhost:${PORT}`))

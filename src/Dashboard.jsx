@@ -24,7 +24,7 @@ function saveSnapshot(steamId, steam, csfloat) {
 }
 
 const STEAM_COLOR   = 'var(--accent)'
-const CSFLOAT_COLOR = '#f59e0b'
+const CSFLOAT_COLOR = 'var(--accent)'
 
 const W = 560, H = 160
 const PAD = { top: 12, right: 12, bottom: 26, left: 62 }
@@ -96,8 +96,8 @@ function DualValueLineChart({ steamData, csfloatData }) {
             stroke="var(--border)" strokeDasharray="3 4" strokeWidth="1" />
         ))}
 
-        <path d={csfloatArea} fill="url(#dualCsfloatGrad)" />
-        <path d={csfloatLine} fill="none" stroke={CSFLOAT_COLOR} strokeWidth="2" strokeLinejoin="round" />
+        <path d={csfloatArea} fill="none" />
+        <path d={csfloatLine} fill="none" stroke={CSFLOAT_COLOR} strokeWidth="2" strokeLinejoin="round" strokeDasharray="5 4" />
         <path d={steamArea} fill="url(#dualSteamGrad)" />
         <path d={steamLine} fill="none" stroke={STEAM_COLOR} strokeWidth="2" strokeLinejoin="round" />
 
@@ -154,7 +154,7 @@ function TopMoversModal({ movers, onClose }) {
           {movers.map((m, idx) => (
             <div key={m.name} className="dash-top-item" style={{ '--rarity': m.color }}>
               <span className="dash-top-rank">#{idx + 1}</span>
-              <img src={`${STEAM_IMAGE_BASE}${m.iconUrl}`} alt={m.name} className="dash-top-img" />
+              <div className="dash-top-img-wrap"><img src={`${STEAM_IMAGE_BASE}${m.iconUrl}`} alt={m.name} className="dash-top-img" /></div>
               <span className="dash-top-name">{stripWear(m.name)}</span>
               <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
                 <span className="dash-top-price">${m.curr.toFixed(2)}</span>
@@ -298,6 +298,38 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, prevSteam
         </div>
       </div>
 
+      {/* ── Value chart ── */}
+      <div className="dash-section dash-section--bare">
+        <div className="dash-section-header">
+          <h3 className="dash-section-title">Portfolio Value</h3>
+          {pricesLoaded && steamHistory.length > 0 && (
+            <div className="dash-chart-legend">
+              <span className="dash-legend-item">
+                <svg className="dash-legend-dash" viewBox="0 0 14 6" width="14" height="6">
+                  <line x1="0" y1="3" x2="14" y2="3" stroke={STEAM_COLOR} strokeWidth="3" strokeLinecap="round" />
+                </svg>
+                Steam <strong>${totalSteam.toFixed(2)}</strong>
+              </span>
+              <span className="dash-legend-item">
+                <svg className="dash-legend-dash" viewBox="0 0 14 6" width="14" height="6">
+                  <line x1="0" y1="3" x2="14" y2="3" stroke={CSFLOAT_COLOR} strokeWidth="3" strokeDasharray="5 4" />
+                </svg>
+                CSFloat <strong>${totalCsfloat.toFixed(2)}</strong>
+              </span>
+            </div>
+          )}
+        </div>
+        {steamHistory.length >= 2 ? (
+          <DualValueLineChart steamData={steamHistory} csfloatData={csfloatHistory} />
+        ) : (
+          <p className="dash-chart-empty">
+            {pricesLoaded
+              ? 'Come back tomorrow — your first data point has been saved.'
+              : 'Loading prices…'}
+          </p>
+        )}
+      </div>
+
       {/* ── Key stats ── */}
       <div className="dash-stats">
         <div className="dash-stat">
@@ -347,34 +379,6 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, prevSteam
         </div>
       </div>
 
-      {/* ── Value chart ── */}
-      <div className="dash-section">
-        <div className="dash-section-header">
-          <h3 className="dash-section-title">Portfolio Value</h3>
-          {pricesLoaded && steamHistory.length > 0 && (
-            <div className="dash-chart-legend">
-              <span className="dash-legend-item">
-                <span className="dash-legend-dot" style={{ background: 'var(--accent)' }} />
-                Steam <strong>${totalSteam.toFixed(2)}</strong>
-              </span>
-              <span className="dash-legend-item">
-                <span className="dash-legend-dot" style={{ background: '#f59e0b' }} />
-                CSFloat <strong>${totalCsfloat.toFixed(2)}</strong>
-              </span>
-            </div>
-          )}
-        </div>
-        {steamHistory.length >= 2 ? (
-          <DualValueLineChart steamData={steamHistory} csfloatData={csfloatHistory} />
-        ) : (
-          <p className="dash-chart-empty">
-            {pricesLoaded
-              ? 'Come back tomorrow — your first data point has been saved.'
-              : 'Loading prices…'}
-          </p>
-        )}
-      </div>
-
       {/* ── Daily Movers ── */}
       {pricesLoaded && allMovers.length > 0 && (
         <div className="dash-columns">
@@ -387,7 +391,7 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, prevSteam
                 {topGainers.map((m, idx) => (
                   <div className="dash-top-item" key={m.name} style={{ '--rarity': m.color }}>
                     <span className="dash-top-rank">#{idx + 1}</span>
-                    <img src={`${STEAM_IMAGE_BASE}${m.iconUrl}`} alt={m.name} className="dash-top-img" />
+                    <div className="dash-top-img-wrap"><img src={`${STEAM_IMAGE_BASE}${m.iconUrl}`} alt={m.name} className="dash-top-img" /></div>
                     <span className="dash-top-name">{stripWear(m.name)}</span>
                     <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
                       <span className="dash-top-price">${m.curr.toFixed(2)}</span>
@@ -410,7 +414,7 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, prevSteam
                 {topLosers.map((m, idx) => (
                   <div className="dash-top-item" key={m.name} style={{ '--rarity': m.color }}>
                     <span className="dash-top-rank">#{idx + 1}</span>
-                    <img src={`${STEAM_IMAGE_BASE}${m.iconUrl}`} alt={m.name} className="dash-top-img" />
+                    <div className="dash-top-img-wrap"><img src={`${STEAM_IMAGE_BASE}${m.iconUrl}`} alt={m.name} className="dash-top-img" /></div>
                     <span className="dash-top-name">{stripWear(m.name)}</span>
                     <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
                       <span className="dash-top-price">${m.curr.toFixed(2)}</span>
@@ -467,11 +471,7 @@ export default function Dashboard({ items, steamPrices, csfloatPrices, prevSteam
                 return (
                   <div className="dash-top-item" key={item.assetid} style={{ '--rarity': color }}>
                     <span className="dash-top-rank">#{idx + 1}</span>
-                    <img
-                      src={`${STEAM_IMAGE_BASE}${item.icon_url}`}
-                      alt={item.name}
-                      className="dash-top-img"
-                    />
+                    <div className="dash-top-img-wrap"><img src={`${STEAM_IMAGE_BASE}${item.icon_url}`} alt={item.name} className="dash-top-img" /></div>
                     <span className="dash-top-name">{stripWear(item.market_hash_name || item.name)}</span>
                     <span className="dash-top-price">${price.toFixed(2)}</span>
                   </div>
